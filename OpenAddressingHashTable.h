@@ -27,7 +27,7 @@ public:
 	using hasher = Hash;
 	using key_equal = KeyEqual;
 	using size_type = std::size_t;
-	using value_type = std::conditional_t<std::is_same_v<Key, T>, Key, std::pair<const Key, T>>;
+	using value_type = std::pair<const Key, T>;
 	using bucket_type = Bucket<Key, T>;
 	using probing_strategy_type = ProbingStrategy;
 	using base_probing_strategy_type = IProbingStrategy<Key>;
@@ -126,7 +126,6 @@ public:
 	bool empty() const noexcept;
 
 	size_type capacity() const noexcept;
-	size_type bucket_index() const noexcept;
 
 	float load_factor() const noexcept;
 	float max_load_factor() const noexcept;
@@ -241,7 +240,7 @@ inline typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy,
 		OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDuplicates>::find_index(const key_type& key) const
 {
 	if (_buckets.empty())
-		return static_cast<size_type>(-1);
+		return _buckets.size();
 
 	const size_type hash = _hash(key);
 	const size_type capacity = _buckets.size();
@@ -307,10 +306,7 @@ template<typename Key, typename T, typename Hash, typename KeyEqual, typename Pr
 inline const typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDuplicates>::key_type&
 		OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDuplicates>::get_key(const value_type& val) const
 {
-	if constexpr (std::is_same_v<key_type, mapped_type>)
-		return val;
-	else
-		return val.first;
+	return val.first;
 }
 
 template<typename Key, typename T, typename Hash, typename KeyEqual, typename ProbingStrategy, bool AllowDuplicates>
@@ -380,7 +376,7 @@ inline OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDup
 	{
 		if (other._buckets[i] && other._buckets[i]->is_occupied())
 		{
-			_buckets[i]->set(*other._buckets[i]);
+			_buckets[i]->make_occupied(other._buckets[i]->key(), other._buckets[i]->get_mapped()); 
 			++_size;
 		}
 	}
@@ -437,7 +433,7 @@ inline OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDup
 		{
 			if (other._buckets[i] && other._buckets[i]->is_occupied())
 			{
-				_buckets[i]->set(*other._buckets[i]);
+				_buckets[i]->make_occupied(other._buckets[i]->key(), other._buckets[i]->get_mapped());
 				++_size;
 			}
 		}
@@ -487,7 +483,7 @@ std::pair<typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrate
 
 	if (inserted)
 	{
-		_buckets[index]->set(kv);
+		_buckets[index]->make_occupied(kv.first, kv.second);
 		++_size;
 	}
 
@@ -509,7 +505,7 @@ std::pair<typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrate
 
 	if (inserted)
 	{
-		_buckets[index]->set(std::move(kv));
+		_buckets[index]->make_occupied(std::move(kv.first), std::move(kv.second));
 		++_size;
 	}
 
@@ -530,10 +526,7 @@ std::pair<typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrate
 
 	if (inserted)
 	{
-		if constexpr (std::is_same_v<Key, T>)
-			_buckets[index]->set(key);
-		else
-			_buckets[index]->set(std::make_pair(key, value));
+		_buckets[index]->make_occupied(key, value);
 		++_size;
 	}
 	return { iterator(_buckets.data() + index, _buckets.data() + _buckets.size()), inserted };
@@ -557,7 +550,7 @@ inline std::pair<typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, Probin
 
 	if (inserted)
 	{
-		_buckets[index]->set(std::move(val));
+		_buckets[index]->make_occupied(std::move(val));
 		++_size;
 	}
 
@@ -581,9 +574,9 @@ inline std::pair<typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, Probin
 	if (inserted)
 	{
 		if constexpr (std::is_same_v<Key, T>)
-			_buckets[index]->set(key);
+			_buckets[index]->make_occupied(key);
 		else
-			_buckets[index]->emplace(key, std::forward<Args>(args)...);
+			_buckets[index]->make_occupied(key, std::forward<Args>(args)...);
 		++_size;
 	}
 
@@ -606,17 +599,11 @@ inline std::pair<typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, Probin
 
 	if (inserted)
 	{
-		if constexpr (std::is_same_v<Key, T>)
-			_buckets[index]->set(key);
-		else
-			_buckets[index]->set(std::make_pair(key, std::forward<M>(obj)));
+		_buckets[index]->make_occupied(key, std::forward<M>(obj));
 		++_size;
 	}
 	else
-	{
-		if constexpr (!std::is_same_v<Key, T>)
-			_buckets[index]->get_mapped() = std::forward<M>(obj);
-	}
+		_buckets[index]->get_mapped() = std::forward<M>(obj);
 	
 	return { iterator(_buckets.data() + index, _buckets.data() + _buckets.size()), inserted };
 }
@@ -812,13 +799,6 @@ typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowD
 		OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDuplicates>::capacity() const noexcept
 {
 	return _buckets.size();
-}
-
-template<typename Key, typename T, typename Hash, typename KeyEqual, typename ProbingStrategy, bool AllowDuplicates>
-inline typename OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDuplicates>::size_type 
-		OpenAddressingHashTable<Key, T, Hash, KeyEqual, ProbingStrategy, AllowDuplicates>::bucket_index() const noexcept
-{
-	
 }
 
 template<typename Key, typename T, typename Hash, typename KeyEqual, typename ProbingStrategy, bool AllowDuplicates>
